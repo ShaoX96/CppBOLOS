@@ -6,9 +6,7 @@
 namespace CppBOLOS {
 
 Target::Target(const std::string& name)
-        : name(name),
-          mass_ratio(-1.0),   // We use -1.0 as a sentinel value to represent "undefined"
-          density(0.0)
+        : name(name)
 {
     // Initialize the kind map
     kind["ELASTIC"] = &elastic;
@@ -21,28 +19,32 @@ Target::Target(const std::string& name)
 
     LOG_INFO("Target " + name + " created.")
 
-    // Note: The by_product map in C++ will be empty by default and will be populated as processes are added.
+    // Note: The by_product map will be empty by default and will be populated as processes are added.
 }
 
-void Target::add_process(Process& process) {
+void Target::add_process(std::unique_ptr<Process> process) {
     // Retrieve the appropriate kind vector and add the process
-    kind[process.kind]->push_back(process);
+    const std::string& kind_key = process->kind;
+    kind[process->kind]->push_back(std::move(process));
+
+    Process* process_ptr = kind[kind_key]->back().get();
 
     // Check and update the mass_ratio if necessary
-    if (process.mass_ratio >= 0.0) {  // Assuming -1.0 indicates an undefined mass ratio
-        LOG_DEBUG("Mass ratio "  << process.mass_ratio << " for " << this->name);
-        if (this->mass_ratio >= 0.0 && this->mass_ratio != process.mass_ratio) {
+    if (process_ptr->mass_ratio >= 0.0) {  // Assuming -1.0 indicates an undefined mass ratio
+        LOG_DEBUG("Mass ratio "  << process_ptr->mass_ratio << " for " << this->name);
+        if (this->mass_ratio >= 0.0 && this->mass_ratio != process_ptr->mass_ratio) {
             throw std::runtime_error("CppBOLOS::add_processError: More than one mass ratio for target '" + this->name + "'");
         }
-        this->mass_ratio = process.mass_ratio;
+        this->mass_ratio = process_ptr->mass_ratio;
     }
 
     // Set the process's target
-    process.target = this;
-    // Update the by_product map
-    by_product[process.product].push_back(process);
+    process_ptr->target = this;
 
-    LOG_DEBUG("Process " << process << " added to target " << this->name);
+    // Update the by_product map
+    by_product[process_ptr->product].push_back(process_ptr);
+
+    LOG_DEBUG("Process " << process_ptr << " added to target " << this->name);
 }
 
 void Target::ensure_elastic() {
@@ -71,13 +73,14 @@ void Target::ensure_elastic() {
     }
 
     // Extract data from the effective process
-    std::vector<std::vector<double>> newdata = effective[0].data;; // Copy of effective data
+    std::vector<std::vector<double>> newdata = effective[0]->data;; // Copy of effective data
 
     // For each inelastic process, subtract from newdata
-    for (const Process& p : inelastic()) { // Assuming inelastic() returns combined list of inelastic processes
+    auto inelastic_processes = this->inelastic();
+    for (const Process* p : inelastic_processes) { // Assuming inelastic() returns combined list of inelastic processes
         for (size_t i = 0; i < newdata.size(); i++) {
             double energy = newdata[i][0];
-            newdata[i][1] -= p.interp(energy); // Subtract the interpolated value
+            newdata[i][1] -= p->interp(energy); // Subtract the interpolated value
         }
     }
 
@@ -94,10 +97,15 @@ void Target::ensure_elastic() {
         " has negative cross-section. Setting as max(0, ...)")
     }
     // Create a new elastic process from the computed data
-    Process newElastic(this->name, "ELASTIC", newdata, "Calculated from EFFECTIVE cross sections", effective[0].mass_ratio);
+    auto newElastic = std::make_unique<Process>(
+                                 this->name, "ELASTIC",
+                                 newdata,
+                                 "Calculated from EFFECTIVE cross sections",
+                                 effective[0]->mass_ratio
+                                 );
 
     // Add the new elastic process to this target
-    add_process(newElastic);
+    add_process(std::move(newElastic));
 
     LOG_DEBUG("EFFECTIVE -> ELASTIC for target " + this->name)
 
@@ -105,19 +113,34 @@ void Target::ensure_elastic() {
     effective.clear();
 }
 
-std::vector<Process>& Target::inelastic(){
+std::vector<Process*> Target::inelastic() {
     if (combined_inelastic.empty()) {
-        combined_inelastic = this->attachment;
-        combined_inelastic.insert(combined_inelastic.end(), this->ionization.begin(), this->ionization.end());
-        combined_inelastic.insert(combined_inelastic.end(), this->excitation.begin(), this->excitation.end());
+        // Collect pointers to all inelastic processes
+        for (const auto& process : attachment) {
+            combined_inelastic.push_back(process.get());
+        }
+        for (const auto& process : ionization) {
+            combined_inelastic.push_back(process.get());
+        }
+        for (const auto& process : excitation) {
+            combined_inelastic.push_back(process.get());
+        }
     }
-    return combined_inelastic; // returns reference to a std::vector<Process> Avoid creating temporary objects.
+    return combined_inelastic;
 }
 
-std::vector<Process> Target::everything() {
-    std::vector<Process> all_processes = this->elastic;
-     std::vector<Process>& inelastic_processes = this->inelastic();
+std::vector<Process*> Target::everything() {
+    std::vector<Process*> all_processes;
+
+    // Add elastic processes
+    for (const auto& process : elastic) {
+        all_processes.push_back(process.get());
+    }
+
+    // Add inelastic processes
+    auto inelastic_processes = this->inelastic();
     all_processes.insert(all_processes.end(), inelastic_processes.begin(), inelastic_processes.end());
+
     return all_processes;
 }
 

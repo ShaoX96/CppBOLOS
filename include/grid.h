@@ -13,7 +13,9 @@ class Grid {
     friend class Process;
 public:
     Grid(double x0, double x1, int n);
-    virtual ~Grid() = default; //The destructor is declared virtual to ensure proper cleanup for objects of derived types.
+
+    //Virtual destructor to ensure proper cleanup for objects of derived types.
+    virtual ~Grid() = default;
 
     Eigen::VectorXd interpolate(const Eigen::VectorXd& f, const Grid& other);
     int cell(double x) const;

@@ -14,17 +14,15 @@ void BoltzmannSolver::set_grid(std::unique_ptr<Grid> grid) {
 
     m_grid = std::move(grid);
 
-    // These are cell boundary values at i - 1/2
     this->benergy = m_grid->b;
 
-    // These are cell centers
     this->cenergy = m_grid->c;
 
-    // And these are the deltas
     this->denergy = m_grid->d;
 
     // This is useful when integrating the growth term.
     this->denergy32.resize(this->benergy.size() - 1);
+
     for (size_t i = 0; i < this->benergy.size() - 1; ++i) {
         this->denergy32[i] = std::pow(this->benergy[i + 1], 1.5) - std::pow(this->benergy[i], 1.5);
     }
@@ -32,9 +30,9 @@ void BoltzmannSolver::set_grid(std::unique_ptr<Grid> grid) {
     this->n = m_grid->n;
 
     m_DF0.resize(this->n + 1);
-    // Initilize m_DF0
-    m_DF0(0) = 0.0; // First element is 0.0
-    m_DF0(this->n) = 0.0; // Last element is 0.0
+    // Initilize m_DF0, first and last element set to 0.0
+    m_DF0(0) = 0.0;
+    m_DF0(this->n) = 0.0;
 }
 
 void BoltzmannSolver::set_grid(const std::string& type, double start, double end, int N_cells){
@@ -50,10 +48,8 @@ void BoltzmannSolver::set_grid(const std::string& type, double start, double end
     } else if (type == "GeometricGrid"){
         std::unique_ptr<GeometricGrid> geoGrid(new GeometricGrid(start, end, N_cells));
         set_grid(std::move(geoGrid));
-    } /* TODO:
-        std::unique_ptr<AutomaticGrid> geoGrid(new AutomaticGrid(start, end, param));
-        set_grid(std::move(AutomaticGrid));
-    }*/ else {
+    } // TODO: AutomaticGrid
+    else {
         throw std::runtime_error("CppBOLOS: Unknown grid type!");
     }
 }
@@ -68,15 +64,15 @@ void BoltzmannSolver::set_density(const std::string& species, const double& dens
 }
 
 void BoltzmannSolver::set_density(const std::string& ss) {
-    std::istringstream stream(ss); // create a stream from the input string
-    std::string token; // to hold each species:density pair
+    std::istringstream stream(ss); // Create a stream from the input string
+    std::string token;             // Hold each species:density pair
 
-    while (std::getline(stream, token, ',')) { // split the string by comma
+    while (std::getline(stream, token, ',')) {  // Split the string by comma
         std::string species;
         double dens;
-        std::istringstream pairStream(token); // stream to parse each species:density pair
-        std::getline(pairStream, species, ':'); // split the pair by colon
-        pairStream >> dens; // read the remaining part as density
+        std::istringstream pairStream(token);   // Stream to parse each species:density pair
+        std::getline(pairStream, species, ':'); // Split the pair by colon
+        pairStream >> dens;                     // Read the remaining part as density
 
         // Trim leading and trailing white spaces from species
         species.erase(species.begin(), std::find_if(species.begin(), species.end(), [](int ch) {
@@ -95,66 +91,62 @@ void BoltzmannSolver::set_density(const std::map<std::string, double>& xMap) {
     for (const auto& [sp, dens] : xMap) {
         set_density(sp, dens);
     }
-//     Prior to C++17:
-//    for (const auto& pair : xMap) {
-//        set_density(pair.first, pair.second);
-//    }
+
+    // Prior to C++17:
+    // for (const auto& pair : xMap) {
+    //     set_density(pair.first, pair.second);
+    // }
 }
 
-Process BoltzmannSolver::add_process
-(
-    const std::string& target, const std::string& kind,
-    const std::vector<std::vector<double>>& data,
-    const double &mass_ratio, const std::string &product,
-    const double &threshold, const double &weight_ratio
-) {
-    // Create a new process
-    Process proc(target, kind, data, "", mass_ratio, product, threshold, weight_ratio);
-
-    // Try to get the target from the map
-    if (m_targetsMap.find(proc.target_name) == m_targetsMap.end()) {
-        // If the target doesn't exist, create a new one and add it to the map
-        m_targetsMap[proc.target_name] = std::make_unique<Target>(proc.target_name);
-    }
-
-    // Add the process to the target
-    m_targetsMap[proc.target_name]->add_process(proc);
-    return proc;
-}
-
-std::vector<Process> BoltzmannSolver::load_collisions(const std::vector<Collision>& collisions) {
-    std::vector<Process> plist;
+void BoltzmannSolver::load_collisions(const std::vector<Collision>& collisions) {
     // Loop over the list of collisions and add each one
     for (const auto& collision : collisions) {
+        const std::string& target_name = collision.target;
 
-        Process proc = this->add_process(collision.target, collision.kind, collision.data,
-                                   collision.mass_ratio, collision.product,
-                                   collision.threshold, collision.weight_ratio);
-        plist.push_back(proc);
+        // Try to get the target from the map
+        if (m_targetsMap.find(target_name) == m_targetsMap.end()) {
+            // If the target doesn't exist, create a new one and add it to the map
+            m_targetsMap[target_name] = std::make_unique<Target>(target_name);
+        }
+
+        Target* target = m_targetsMap[target_name].get();
+
+        // Create a new Process
+        auto process = std::make_unique<Process>(
+                target_name,
+                collision.kind,
+                collision.data,
+                "",
+                collision.mass_ratio,
+                collision.product,
+                collision.threshold,
+                collision.weight_ratio
+        );
+
+        // Add the process to the target
+        target->add_process(std::move(process));
     }
 
     // Ensure all targets have their elastic cross-sections
     for (auto& [key, targetPtr] : m_targetsMap) {
-        targetPtr->ensure_elastic();  // Assuming target is of type `std::unordered_map<std::string, std::unique_ptr<Target>>`
+        targetPtr->ensure_elastic();
     }
 
-    // Extra initialization for growthProcesses for process->set_grid_cache
+    // Extra initialization for growthProcesses
     m_growReactions = iter_growth();
     for (auto& [target, process] : m_growReactions) {
         process->set_grid_cache(*m_grid);
     }
-
-    return plist;
 }
 
 std::vector<std::pair<Target*, Process*>> BoltzmannSolver::iter_elastic() {
     std::vector<std::pair<Target*, Process*>> results;
 
-    for (auto& [key, targetPtr] : m_targetsMap) {
+    for (const auto& [key, targetPtr] : m_targetsMap) {
         Target* target = targetPtr.get();
         if (target->density > 0) {
-            for (Process& process : target->elastic) {
-                results.push_back({target, &process});
+            for (const auto& processPtr : target->elastic) {
+                results.emplace_back(target, processPtr.get());
             }
         }
     }
@@ -167,8 +159,8 @@ std::vector<std::pair<Target*, Process*>> BoltzmannSolver::iter_inelastic() {
     for (auto& [key, targetPtr] : m_targetsMap) {
         Target* target = targetPtr.get();
         if (target->density > 0) {
-            for ( Process& process : target->inelastic()) {
-                results.push_back({target, &process});
+            for (Process* process : target->inelastic()) {
+                results.emplace_back(target, process);
             }
         }
     }
@@ -182,11 +174,11 @@ std::vector<std::pair<Target*, Process*>> BoltzmannSolver::iter_growth() {
     for (auto& [key, targetPtr] : m_targetsMap) {
         Target* target = targetPtr.get();
         if (target->density > 0) {
-            for (Process& process : target->ionization) {
-                results.push_back({target, &process});
+            for (const auto& processPtr : target->ionization) {
+                results.emplace_back(target, processPtr.get());
             }
-            for (Process& process : target->attachment) {
-                results.push_back({target, &process});
+            for (const auto& processPtr : target->attachment) {
+                results.emplace_back(target, processPtr.get());
             }
         }
     }
@@ -217,7 +209,6 @@ std::vector<std::pair<Target*, Process*>> BoltzmannSolver::iter_momentum() {
 }
 
 void BoltzmannSolver::init() {
-
     // Initialize sigma_eps and sigma_m with zeros
     this->sigma_eps.setZero(this->benergy.size()); // Equivalent to np.zeros_like
     this->sigma_m.setZero(this->benergy.size());
@@ -298,7 +289,7 @@ double BoltzmannSolver::_norm(const Eigen::VectorXd& f) {
 Eigen::VectorXd BoltzmannSolver::_normalized(const Eigen::VectorXd& f) {
     // Normalize the function
     double N = _norm(f);
-    return f/N;
+    return f / N;
 }
 
 // Calculate (local) logarithmic slope. Eq.51 in Ref. Hagelaar 2005
@@ -326,11 +317,14 @@ Eigen::SparseMatrix<double> BoltzmannSolver::_PQ(const Eigen::VectorXd& F0, std:
     Eigen::SparseMatrix<double> PQ(this->n, this->n);
 
     Eigen::VectorXd g = _g(F0);
+
     // If no specific reactions are provided, use the iter_inelastic() method
     if (reactions.empty()) {
-        reactions = this->iter_inelastic();  // We need a C++ equivalent for this
+        reactions = this->iter_inelastic();
     }
+
     std::vector<Eigen::Triplet<double>> tripletList;
+    tripletList.reserve(reactions.size() * 2 * this->n);
 
     for (const std::pair<Target*, Process*>& tk : reactions) {
         Process* k = tk.second;
@@ -354,7 +348,7 @@ Eigen::SparseMatrix<double> BoltzmannSolver::_PQ(const Eigen::VectorXd& F0, std:
 
 // Overloaded version of _PQ() which only takes F0
 Eigen::SparseMatrix<double> BoltzmannSolver::_PQ(const Eigen::VectorXd& F0) {
-    std::vector<std::pair<Target*, Process*>> reactions = this->iter_inelastic();  // Assuming we have a C++ equivalent for iter_inelastic
+    std::vector<std::pair<Target*, Process*>> reactions = this->iter_inelastic();
     return _PQ(F0, reactions);
 }
 
@@ -376,8 +370,8 @@ Eigen::SparseMatrix<double> BoltzmannSolver::_scharf_gummel(const Eigen::VectorX
     z[this->cenergy.size()] = std::nan(""); // Set to NaN
 
     // Compute a0 and a1 terms
-//    Eigen::VectorXd a0 = this->W.array() / (1.0 - (-z.array()).exp());
-//    Eigen::VectorXd a1 = this->W.array() / (1.0 - z.array().exp());
+    // Eigen::VectorXd a0 = this->W.array() / (1.0 - (-z.array()).exp());
+    // Eigen::VectorXd a1 = this->W.array() / (1.0 - z.array().exp());
     Eigen::VectorXd a0 = (z.array() != 0).select(
             this->W.array() / (1.0 - (-z.array()).exp()),
             std::numeric_limits<double>::infinity()
@@ -398,9 +392,9 @@ Eigen::SparseMatrix<double> BoltzmannSolver::_scharf_gummel(const Eigen::VectorX
     triplets.emplace_back(0, 0, a0[1] + G[0]);
     triplets.emplace_back(0, 1, a1[1]);
     for (int i = 1; i < this->n - 1; i++) {
-        triplets.emplace_back(i, i, a0[i+1]-a1[i] + G[i]); // main diagonal
-        triplets.emplace_back(i, i - 1, -a0[i]); // subdiagonal
-        triplets.emplace_back(i, i + 1, a1[i+1]); // superdiagonal
+        triplets.emplace_back(i, i, a0[i+1]-a1[i] + G[i]); // Main diagonal
+        triplets.emplace_back(i, i - 1, -a0[i]);           // Sub-diagonal
+        triplets.emplace_back(i, i + 1, a1[i+1]);          // Super-diagonal
     }
 
     // Handle the boundary conditions directly using Eigen's segment function
@@ -412,17 +406,16 @@ Eigen::SparseMatrix<double> BoltzmannSolver::_scharf_gummel(const Eigen::VectorX
     return A;
 }
 
-std::pair<Eigen::SparseMatrix<double>, Eigen::SparseMatrix<double>> BoltzmannSolver::_linsystem(const Eigen::VectorXd& F) {
+std::pair<Eigen::SparseMatrix<double>, Eigen::SparseMatrix<double>> BoltzmannSolver::_linsystem(const Eigen::VectorXd& F0) {
 
     // Calculate Q
-    Eigen::SparseMatrix<double> Q = _PQ(F);
+    Eigen::SparseMatrix<double> Q = _PQ(F0);
 
     // Calculate nu
-    double nu = (Q * F).sum();
+    double nu = (Q * F0).sum();
 
-    // Compute sigma_tilde
-    // Eigen::VectorXd sigma_tilde = this->sigma_m.array() + nu / this->benergy.array().sqrt() / GAMMA;
     // Compute sigma_tilde with division by zero handling
+    // Eigen::VectorXd sigma_tilde = this->sigma_m.array() + nu / this->benergy.array().sqrt() / GAMMA;
     Eigen::VectorXd sigma_tilde = sigma_m.array() + (benergy.array() != 0).select(
             nu / benergy.array().sqrt() / GAMMA,
             std::numeric_limits<double>::infinity()
@@ -437,52 +430,67 @@ std::pair<Eigen::SparseMatrix<double>, Eigen::SparseMatrix<double>> BoltzmannSol
     return std::make_pair(A, Q);
 }
 
-Eigen::VectorXd BoltzmannSolver::iterate(const Eigen::VectorXd& f0, double delta) {
+Eigen::VectorXd BoltzmannSolver::iterate(const Eigen::VectorXd& F0, double delta) {
     // Get matrices A and Q from the _linsystem method
-    std::pair<Eigen::SparseMatrix<double>, Eigen::SparseMatrix<double>> matrices = _linsystem(f0);
+    std::pair<Eigen::SparseMatrix<double>, Eigen::SparseMatrix<double>> matrices = _linsystem(F0);
     Eigen::SparseMatrix<double> A = matrices.first;
     Eigen::SparseMatrix<double> Q = matrices.second;
 
-//    checkMatrix(A);
-//    checkMatrix(Q);
+    // checkMatrix(A);
+    // checkMatrix(Q);
     // Set up the linear system
-    Eigen::SparseMatrix<double> I(f0.size(), f0.size());  // Identity matrix
+    Eigen::SparseMatrix<double> I(F0.size(), F0.size());  // Identity matrix
     I.setIdentity();
     Eigen::SparseMatrix<double> lhs = I + delta * A - delta * Q;
 
-//    if (!lhs.isApprox(lhs.transpose())) {
-//        std::cerr << "Matrix is not symmetric!" << std::endl;
-//    }
+    // if (!lhs.isApprox(lhs.transpose())) {
+    //     std::cerr << "Matrix is not symmetric!" << std::endl;
+    // }
 
     // Solve the system using Eigen's solver. The BiCGSTAB solver is a good choice for sparse systems.
-    // Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> solver;
     solver.compute(lhs);
     if(solver.info() != Eigen::Success) {
-        throw std::runtime_error("CppBOLOS-SolverError: Decomposition failed!");
+        throw std::runtime_error("BoltzmannSolver::iterate(): BiCGSTAB solver decomposition failed!");
     }
 
-    Eigen::VectorXd f1 = solver.solve(f0);
+    Eigen::VectorXd f1 = solver.solve(F0);
     if(solver.info() != Eigen::Success) {
-        throw std::runtime_error("CppBOLOS-SolverError: Solving failed!");
+        throw std::runtime_error("BoltzmannSolver::iterate(): BiCGSTAB solving failed!");
     }
+
+    // Ensure f1 has non-zero values
+    f1 = f1.unaryExpr([](double v) { return std::max(v, 1E-100); });
 
     // Return the normalized solution
     return _normalized(f1);
 }
 
-Eigen::VectorXd BoltzmannSolver::converge(Eigen::VectorXd f0, int maxn, double rtol, double delta0, double m, bool full) {
+Eigen::VectorXd BoltzmannSolver::converge(const Eigen::VectorXd& F0, int maxn, double rtol, double delta0, double m, bool full) {
     double err0 = 0.0, err1 = 0.0;
     double delta = delta0;
     Eigen::VectorXd f1;
+    Eigen::VectorXd f0 = F0;
 
     for (int i = 0; i < maxn; ++i) {
         // Richardson Extrapolation for updating delta
-        if (err1 > 0 && err1 < err0) {
-            delta = delta * std::log(m) / (std::log(err0) - std::log(err1));
-        }
+        // if (err1 > 0 && err1 < err0) {
+        //     double new_delta = delta * std::log(m) / (std::log(err0) - std::log(err1));
+        //     delta = delta + 0.5 * (new_delta - delta);
+        // } else {
+        //     delta = delta0;
+        // }
+        // LOG_DEBUG("delta = " << delta);
 
         // Perform Iteration
-        f1 = this->iterate(f0, delta);
+        try {
+            f1 = this->iterate(f0, delta);
+        } catch (const std::runtime_error& e) {
+            LOG_DEBUG(e.what())
+            LOG_DEBUG("Iterate failed with delta = " << delta << ". Reducing delta and retrying.")
+            delta = delta / 2.0;
+            f0 = F0;
+            continue;
+        }
 
         // Compute Error
         err0 = err1;
@@ -494,6 +502,7 @@ Eigen::VectorXd BoltzmannSolver::converge(Eigen::VectorXd f0, int maxn, double r
         // Check Convergence
         if (err1 < rtol) {
             LOG_INFO("***** Convergence achieved after " << (i + 1) << " iterations. err = " << err1 << " *****");
+            nIter = i+1;
 
             if (full) {
                 // TODO: Return additional convergence information if needed
@@ -552,7 +561,7 @@ Eigen::VectorXd BoltzmannSolver::converge(Eigen::VectorXd f0, int maxn, double r
     }
 
     // Convergence was not achieved
-    throw ConvergenceError("Convergence failed !");
+    throw ConvergenceError("Convergence failed after " + std::to_string(maxn) + " iterations!");
 }
 
 // Search for a process or a number of processes within the solver
@@ -581,18 +590,16 @@ Process* BoltzmannSolver::search(const std::string& signature, const std::string
             throw std::runtime_error("CppBOLOS searchError: Process for " + signature + " -> " + product + " not found");
         }
 
-        //std::vector<Process>* processes = process_it->second;
-
         // Return the first process matching the search
         if (! process_it->second.empty()) {
-            Process* result = &process_it->second[0];
+            Process* result = process_it->second[0];
             // Cache the result
             m_search_cache[cache_key] = result;
 
             return result;
         }
     }
-        // If only the signature is specified
+    // Only the signature is specified
     else {
         return search(signature);
     }
@@ -627,21 +634,19 @@ Process* BoltzmannSolver::search(const std::string& signature) {
 }
 
 double BoltzmannSolver::rate(const Eigen::VectorXd& F0, Process* k, bool weighted) {
-
-    // If k is a string, use a search function to find the corresponding process
-
     // Set the grid cache for the process k
-    k->set_grid_cache(*m_grid);  // Assuming grid is a member variable of the BoltzmannSolver class
+    k->set_grid_cache(*m_grid);
 
     // Calculate scatterings
-    Eigen::VectorXd r = k->scatterings(logSlopeF0, this->cenergy);  // Assuming cenergy is a member variable
+    // TODO: if EEDF is updated from ML technique, recalculate lgoSlopeF0 here
+    Eigen::VectorXd r = k->scatterings(logSlopeF0, this->cenergy);
 
     // Build a sparse matrix for P
     Eigen::SparseMatrix<double> P(this->n, 1);
-    std::vector<Eigen::Triplet<double>> tripletList;
+    std::vector<Eigen::Triplet<double>> tripletList(r.size());
 
     for (int i = 0; i < r.size(); ++i) {
-        tripletList.emplace_back(k->j[i], 0, GAMMA * r[i]);  // Assuming k.j is a vector of indices
+        tripletList.emplace_back(k->j[i], 0, GAMMA * r[i]);
     }
 
     P.setFromTriplets(tripletList.begin(), tripletList.end());
@@ -663,15 +668,15 @@ double BoltzmannSolver::rate(const Eigen::VectorXd& F0, Process* k, bool weighte
 // Overloaded function that takes a string to identify the process
 double BoltzmannSolver::rate(const Eigen::VectorXd& F0, const std::string& k_str, bool weighted) {
     // Search for the process using the string identifier (to be implemented)
-    Process* k = search(k_str);  // Assuming search returns a reference to a Process object
+    Process* k = search(k_str);
     return rate(F0, k, weighted);
 }
 
 double BoltzmannSolver::calcu_mobility(const Eigen::VectorXd& F0) {
-    // Calculate DF0
-    Eigen::VectorXd DF0(F0.size() + 1); // Initialize with the same size as F0
-    DF0(0) = 0.0; // First element is 0.0
-    DF0(F0.size()) = 0.0; // Last element is 0.0
+    // Initialize DF0
+    Eigen::VectorXd DF0(F0.size() + 1);
+    DF0(0) = 0.0;
+    DF0(F0.size()) = 0.0;
 
     for (int i = 1; i < F0.size(); ++i) {
         double diff_F0 = F0(i) - F0(i - 1);
@@ -684,6 +689,7 @@ double BoltzmannSolver::calcu_mobility(const Eigen::VectorXd& F0) {
 
     // Calculate nu
     double nu = (Q * F0).sum() / GAMMA;
+
     // Calculate sigma_tilde
     // Eigen::VectorXd sigma_tilde = this->sigma_m.array() + nu / this->benergy.array().sqrt();
     Eigen::VectorXd sigma_tilde = sigma_m.array() + (benergy.array() != 0).select(

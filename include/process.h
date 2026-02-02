@@ -25,27 +25,38 @@ public:
     // The shift factor for inelastic collisions.
     static const std::map<std::string, int> SHIFT_FACTOR;
 
-    Process(std::string target = "", std::string kind = "", std::vector<std::vector<double>> data = {},
-            std::string comment = "", double mass_ratio = -1., std::string product = "",
-            double threshold = 0.0, double weight_ratio = -1.);
+    Process(
+            std::string target = "",
+            std::string kind = "",
+            std::vector<std::vector<double>> data = {},
+            std::string comment = "",
+            double mass_ratio = -1.0,
+            std::string product = "",
+            double threshold = 0.0,
+            double weight_ratio = -1.0
+    );
 
-    // void scatterings(double* g, double* eps, size_t eps_size, double* r);
+    // Delete copy constructor and copy assignment operator
+    Process(const Process&) = delete;
+    Process& operator=(const Process&) = delete;
+
     Eigen::VectorXd scatterings(const Eigen::VectorXd& g, const Eigen::VectorXd& eps);
 
-    //void set_grid_cache(std::vector<double>& grid);
     void set_grid_cache(const Grid& grid);
 
     friend std::ostream& operator<<(std::ostream& os, const Process& process);
 
     // Helper functions.
-    std::function<double(double)> padinterp(std::vector<std::vector<double>>& data);
+    std::function<double(double)> padinterp(const std::vector<std::vector<double>>& data) const;
 
-    //void int_linexp0(double a, double b, double u0, double u1, double g, double x0, double* r);
-    double int_linexp0(double a, double b, double u0, double u1, double g, double x0);
+    double int_linexp0(double a, double b, double u0, double u1, double g, double x0) const;
+
+    const double get_threshold() const {return threshold;}
 
 private:
-    std::string target_name;
     Target* target;
+
+    std::string target_name;
     std::string kind;
     std::string comment;
     std::string product;
@@ -61,7 +72,6 @@ private:
     std::vector<double> x;
     std::vector<double> y;
 
-    //std::vector<double> cached_grid;
     const Grid* cached_grid = nullptr;  // Initialize to nullptr as default
 
     std::vector<int> j;

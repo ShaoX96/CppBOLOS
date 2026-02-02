@@ -24,13 +24,20 @@ const std::map<std::string, int> Process::SHIFT_FACTOR = {
 };
 
 // Constructor definition in the Process class
-Process::Process(std::string target, std::string kind, std::vector<std::vector<double>> data,
-                 std::string comment, double mass_ratio, std::string product,
-                 double threshold, double weight_ratio)
+Process::Process(
+            std::string target,
+            std::string kind,
+            std::vector<std::vector<double>> data,
+            std::string comment,
+            double mass_ratio,
+            std::string product,
+            double threshold,
+            double weight_ratio
+        )
         : target_name(target), kind(kind), data(data), comment(comment),
           mass_ratio(mass_ratio), product(product), threshold(threshold),
-          weight_ratio(weight_ratio), isnull(false), cached_grid(), target(nullptr){
-
+          weight_ratio(weight_ratio), isnull(false), cached_grid(), target(nullptr)
+{
     // Copying the 2D data vector into x and y
     for (auto& row : data) {
         this->x.push_back(row[0]);
@@ -39,14 +46,14 @@ Process::Process(std::string target, std::string kind, std::vector<std::vector<d
 
     // Call the function padinterp and assign the returned function to interp
     if (data.empty()) { LOG_WARNING("CppBOLOS::Process constructor. Empty data input for interp");}
-    this->interp = padinterp(data);
+    interp = padinterp(data);
 
     // Access IN_FACTOR and SHIFT_FACTOR
     auto in_it = IN_FACTOR.find(kind);
-    this->in_factor = (in_it != IN_FACTOR.end()) ? in_it->second : 0;
+    in_factor = (in_it != IN_FACTOR.end()) ? in_it->second : 0;
 
     auto shift_it = SHIFT_FACTOR.find(kind);
-    this->shift_factor = (shift_it != SHIFT_FACTOR.end()) ? shift_it->second : 0;
+    shift_factor = (shift_it != SHIFT_FACTOR.end()) ? shift_it->second : 0;
 
     // Check for negative energy
     if (!x.empty() && *std::min_element(x.begin(), x.end()) < 0) {
@@ -60,28 +67,15 @@ Process::Process(std::string target, std::string kind, std::vector<std::vector<d
 }
 
 Eigen::VectorXd Process::scatterings(const Eigen::VectorXd& g, const Eigen::VectorXd& eps) {
-    Eigen::VectorXd r;
-    if (this->j.empty()) {
-        // When we do not have inelastic collisions or when the grid is
-        // smaller than the thresholds, we still return an empty array
-        // and thus avoid exceptions in g[self.j]
-        return r;
-    }
-    std::vector<double> gj(this->j.size());
-    std::vector<double> epsj(this->j.size());
-
-    for (int i = 0; i < this->j.size(); i++) {
-        gj[i] = g[this->j[i]];
-        epsj[i] = eps[this->j[i]];
-    }
-
-    //size_t size = eps_size / 2;
-    r.resize(this->eps.size());
+    Eigen::VectorXd r(this->eps.size());
 
     for (size_t i = 0; i < this->eps.size(); ++i) {
+        int idx = this->j[i];
+        double gj = g[idx];
+        double epsj = eps[idx];
         r[i] = int_linexp0(this->eps[i][0], this->eps[i][1],
-                    this->sigma[i][0], this->sigma[i][1],
-                    gj[i], epsj[i]);
+                           this->sigma[i][0], this->sigma[i][1],
+                           gj, epsj);
     }
 
     return r;
@@ -96,7 +90,7 @@ void Process::set_grid_cache(const Grid& grid) {
 
     cached_grid = &grid;
 
-    Eigen::VectorXd eps1 = this->shift_factor * grid.get_b().array() + this->threshold;
+    Eigen::VectorXd eps1 = shift_factor * grid.get_b().array() + threshold;
     eps1 = eps1.array().max((grid.get_b()[0] + 1e-9));
     eps1 = eps1.array().min((grid.get_b().tail<1>()[0] - 1e-9));
 
@@ -113,27 +107,27 @@ void Process::set_grid_cache(const Grid& grid) {
         }
     }
 
-    for (const auto& x : this->x) {
-        if (x >= eps1[0] && x <= eps1[eps1.size()-1] && std::find(nodes.begin(), nodes.end(), x) == nodes.end()) {
-            nodes.push_back(x);
+    for (const auto& e : this->x) {
+        if (e >= eps1[0] && e <= eps1[eps1.size()-1] && std::find(nodes.begin(), nodes.end(), e) == nodes.end()) {
+            nodes.push_back(e);
         }
     }
 
     std::sort(nodes.begin(), nodes.end());
 
     std::vector<double> sigma0(nodes.size());
-    for (size_t i = 0; i < nodes.size(); ++i) {
-        sigma0[i] = this->interp(nodes[i]);
+    for (size_t k = 0; k < nodes.size(); ++k) {
+        sigma0[k] = this->interp(nodes[k]);
     }
 
     this->j.resize(nodes.size() - 1);
     this->i.resize(nodes.size() - 1);
 
-    for (int i = 1; i < nodes.size(); ++i) {
-        auto it0 = std::lower_bound(grid.b.data(), grid.b.data() + grid.b.size(), nodes[i]);
-        this->j[i - 1] = std::distance(grid.b.data(), it0) - 1;
-        auto it1 = std::lower_bound(eps1.data(), eps1.data() + eps1.size(), nodes[i]);
-        this->i[i - 1] = std::distance(eps1.data(), it1) - 1;
+    for (int idx = 1; idx < nodes.size(); ++idx) {
+        auto it0 = std::lower_bound(grid.b.data(), grid.b.data() + grid.b.size(), nodes[idx]);
+        this->j[idx - 1] = std::distance(grid.b.data(), it0) - 1;
+        auto it1 = std::lower_bound(eps1.data(), eps1.data() + eps1.size(), nodes[idx]);
+        this->i[idx - 1] = std::distance(eps1.data(), it1) - 1;
     }
 
     this->sigma.resize(nodes.size() - 1, std::vector<double>(2));
@@ -155,47 +149,45 @@ std::ostream& operator<<(std::ostream& os, const Process& process) {
     return os;
 }
 
-std::function<double(double)> Process::padinterp(std::vector<std::vector<double>>& data) {
+std::function<double(double)> Process::padinterp(const std::vector<std::vector<double>>& data) const {
     if (data.empty()) {
         // Return an interpolation function that always returns 0
-        return [](double xi) {  return 0.0; };
+        return [](double) { return 0.0; };
     }
-    // Create x and y vectors
-    std::vector<double> x;
-    std::vector<double> y;
 
-    // Check first element and add elements for extrapolation
+    // Create x and y vectors for interpolation
+    std::vector<double> x_interp;
+    std::vector<double> y_interp;
+
+    // Prepend zero if needed
     if (data[0][0] > 0) {
-        x.push_back(0.0);
-        y.push_back(data[0][1]);
+        x_interp.push_back(0.0);
+        y_interp.push_back(data[0][1]);
     }
 
-    // Add the original data
-    for (auto& row : data) {
-        x.push_back(row[0]);
-        y.push_back(row[1]);
+    // Copy data
+    for (const auto& row : data) {
+        x_interp.push_back(row[0]);
+        y_interp.push_back(row[1]);
     }
 
-    // Add element at the end for extrapolation
-    x.push_back(1e8);
-    y.push_back(data.back()[1]);
+    // Append large value for extrapolation
+    x_interp.push_back(1e8);
+    y_interp.push_back(data.back()[1]);
 
-    Eigen::VectorXd xXd = Eigen::Map<Eigen::VectorXd>(x.data(), x.size());
-    Eigen::VectorXd yXd = Eigen::Map<Eigen::VectorXd>(y.data(), y.size());
-    std::function<double(double)> interpFunc = [xXd, yXd](double xi) {
+    Eigen::VectorXd xXd = Eigen::Map<const Eigen::VectorXd>(x_interp.data(), x_interp.size());
+    Eigen::VectorXd yXd = Eigen::Map<const Eigen::VectorXd>(y_interp.data(), y_interp.size());
+
+    // Capture by value to avoid dangling references
+    return [xXd, yXd](double xi) {
         return ScipyUtils::interp1d(xXd, yXd, xi);
     };
-
-    return interpFunc;
-
 }
 
-double Process::int_linexp0(double a, double b, double u0, double u1, double g, double x0) {
-    /*
-    This is the integral in [a, b] of u(x) * exp(g * (x0 - x)) * x
-    assuming that
-    u is linear with u({a, b}) = {u0, u1}.
-    */
+
+// Integration of u(x) * exp(g * (x0 - x)) * x in [a, b]
+// assuming that u is linear with u({a, b}) = {u0, u1}.
+inline double Process::int_linexp0(double a, double b, double u0, double u1, double g, double x0) const{
     double result;
 
     double c0 = (a * u1 - b * u0) / (a - b);
@@ -203,8 +195,8 @@ double Process::int_linexp0(double a, double b, double u0, double u1, double g, 
 
     // When g is zero, we are integrating u(x)*x from a to b
     if (std::abs(g) < 1e-16) {
-//        LOG_DEBUG("Process::int_linexp0: |g| < 1e-16.");
-        result = c0 * (b*b - a*a) / 2 + c1 * (b*b*b - a*a*a) / 3;
+        // LOG_DEBUG("Process::int_linexp0: |g| < 1e-16.");
+        result = c0 * (b*b - a*a) / 2.0 + c1 * (b*b*b - a*a*a) / 3.0;
         return result;
     }
 
@@ -215,8 +207,8 @@ double Process::int_linexp0(double a, double b, double u0, double u1, double g, 
     double ag = a * g;
     double bg = b * g;
 
-    double ag1 = ag + 1;
-    double bg1 = bg + 1;
+    double ag1 = ag + 1.0;
+    double bg1 = bg + 1.0;
 
     double g2 = g * g;
     double g3 = g2 * g;
@@ -224,14 +216,13 @@ double Process::int_linexp0(double a, double b, double u0, double u1, double g, 
     double A1 = (  expm1a * ag1 + ag
                    - expm1b * bg1 - bg) / g2;
 
-    double A2 = (expm1a * (2 * ag1 + ag * ag) + ag * (ag + 2) -
-                 expm1b * (2 * bg1 + bg * bg) - bg * (bg + 2)) / g3;
+    double A2 = (expm1a * (2.0 * ag1 + ag * ag) + ag * (ag + 2.0) -
+                 expm1b * (2.0 * bg1 + bg * bg) - bg * (bg + 2.0)) / g3;
 
     // Compute the result and store it in the memory pointed to by r
     result = c0 * A1 + c1 * A2;
 
-    // Where either F0 or F1 is 0 we return 0
-
+    // When either F0 or F1 is 0 we return 0
     return (std::isnan(result) ? 0.0 : result);
 }
 

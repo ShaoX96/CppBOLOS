@@ -4,28 +4,47 @@
 
 namespace CppBOLOS {
 
-std::stringstream clean_file(const std::string& filename) {
+// std::stringstream clean_file(const std::string& filename) {
+//     std::ifstream file(filename);
+//     // Check if the file was opened successfully
+//     if (!file.is_open()) {
+//         parserError("CppBOLOS parserError: Could not open file " + filename);
+//     }
+//
+//     // Read each line, remove carriage return, and store the cleaned lines
+//     std::stringstream ss;
+//     std::string line;
+//     while (std::getline(file, line)) {
+//         // Remove carriage return and write directly to stringstream
+//         if (!line.empty() && line.back() == '\r') {
+//             line.pop_back(); // Efficiently removes trailing '\r'
+//         }
+//         ss << line << "\n";
+//     }
+//
+//     return ss;
+// }
+
+std::vector<std::string> clean_file(const std::string& filename) {
     std::ifstream file(filename);
+
     // Check if the file was opened successfully
     if (!file.is_open()) {
         parserError("CppBOLOS parserError: Could not open file " + filename);
     }
+
     // Read each line, remove carriage return, and store the cleaned lines
     std::vector<std::string> lines;
     std::string line;
     while (std::getline(file, line)) {
-        line = remove_carriage_return(line);
+        // Remove carriage return (if present)
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         lines.push_back(line);
     }
-    // Close the original file
-    file.close();
-    // Create a new stringstream from the cleaned lines
-    std::stringstream ss;
-    for (const std::string& cleaned_line : lines) {
-        ss << cleaned_line << "\n";
-    }
 
-    return ss;
+    return lines;
 }
 
 // This is to mirror split() in python.
@@ -56,7 +75,7 @@ std::vector<std::string> read_until_sep(std::istream& file) {
     return lines;
 }
 
-// Implement the rest of the functions here...
+
 std::string join_strings(const std::vector<std::string>& strings, const std::string& delimiter) {
     std::ostringstream joined;
     copy(strings.begin(), strings.end(), std::ostream_iterator<std::string>(joined, delimiter.c_str()));
@@ -102,7 +121,7 @@ Block read_block(std::istream& file, bool has_arg) {
             row.push_back(item_double);
         }
         if (row[0] < 0 or row[1] < 0) parserError("Negative data in ", line);
-//        LOG_DEBUG(row[0] <<" \t" << row[1]);
+        // LOG_DEBUG(row[0] <<" \t" << row[1]);
         block.data.push_back(row);
     }
     /*
@@ -209,10 +228,36 @@ std::vector<Collision> parse(std::istream& file) {
             Collision collision = it->second(file);
             collision.kind = line;
             collisions.push_back(collision);
-        } else {
         }
     }
     LOG_INFO("****** Parsing complete with " << collisions.size() << " collisions/processes read. ******\n")
+    return collisions;
+}
+
+std::vector<Collision> parse(const std::vector<std::string>& lines) {
+    // Combine the vector of strings into a single string
+    std::string combined;
+    for (const auto& line : lines) {
+        combined += line + "\n"; // Add each line followed by a newline
+    }
+
+    // Wrap the combined string in an istringstream
+    std::istringstream stream(combined);
+
+    // Now use the existing stream-based parsing logic
+    std::vector<Collision> collisions;
+    std::string line;
+    while (std::getline(stream, line)) {
+        auto it = KEYWORDS.find(line);
+        if (it != KEYWORDS.end()) {
+            LOG_DEBUG("New process of type: '" << line << "'");
+            Collision collision = it->second(stream); // Call the process function
+            collision.kind = line;
+            collisions.push_back(collision);
+        }
+    }
+
+    LOG_INFO("****** Parsing complete with " << collisions.size() << " collisions/processes read. ******\n");
     return collisions;
 }
 

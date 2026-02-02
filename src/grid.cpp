@@ -130,33 +130,6 @@ AutomaticGrid::AutomaticGrid(const Grid& grid, const Eigen::VectorXd& f0, double
     c = 0.5 * (b.segment(1, b.size() - 1) + b.head(b.size() - 1));
     d = b.segment(1, b.size() - 1) - b.head(b.size() - 1);
     _interp = nullptr;
-
 }
-
-
-/*
-std::unique_ptr<Grid> mkgrid(const std::string& kind, ...) { // Again, handling variable arguments is tricky
-    if (kind == "linear" || kind == "lin") {
-        // Extract relevant arguments and create a LinearGrid object
-        return std::make_unique<LinearGrid>(...);
-    }
-    else if (kind == "quadratic" || kind == "quad") {
-        // Extract relevant arguments and create a QuadraticGrid object
-        return std::make_unique<QuadraticGrid>(...);
-    }
-    else if (kind == "geometric" || kind == "geo") {
-        // Extract relevant arguments and create a GeometricGrid object
-        return std::make_unique<GeometricGrid>(...);
-    }
-    else if (kind == "logarithmic" || kind == "log") {
-        // Extract relevant arguments and create a LogGrid object
-        return std::make_unique<LogGrid>(...);
-    }
-    // ... Add other kinds as needed
-
-    // If the kind does not match any known grid type, return nullptr or throw an exception
-    return nullptr;
-}
-*/
 
 }

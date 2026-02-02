@@ -1,7 +1,9 @@
-// Master code of CppBOLOS
-// 
-// This file is part of CppBOLOS. See license and copyright information at
-// https://github.com/ShaoX96/CppBOLOS
+/* Master code of CppBOLOS.
+*  An example of H2/O2/He mixture under constant reduced E-field.
+*
+* This file is part of CppBOLOS. See license and copyright information at
+* https://github.com/ShaoX96/CppBOLOS
+*/
 
 #include <iostream>
 #include "grid.h"
@@ -20,7 +22,7 @@ int main() {
 
     // Read cross section data
     std::string filename = "../data/bolsigdb_H2O2He.dat";
-    std::stringstream ss = clean_file(filename);
+    std::vector<std::string> ss = clean_file(filename);
     std::vector<Collision> collisions = parse(ss);
 
     // Create a BoltzmannSolver instance
